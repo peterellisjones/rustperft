@@ -1,0 +1,13 @@
+[package]
+name = "rustperft"
+version = "0.1.0"
+authors = ["Peter Ellis Jones <pete@peterellisjones.com>"]
+
+[dependencies]
+rand = "*"
+unindent = "*"
+simd = "*"
+prettytable-rs = "*"
+clap = "*"
+threadpool = "*"
+num_cpus = "*"
