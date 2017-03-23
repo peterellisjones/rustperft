@@ -35,9 +35,9 @@ pub fn perft_cmd(fen: &str,
     let now = Instant::now();
 
     let (stats, hash_stats) = if depth > 3 && !single_threaded {
-        perft_init_parallel(&mut tree, depth - 1, leaf_hash_size, shared_hash_size)
+        perft_init_parallel(&mut tree, depth, leaf_hash_size, shared_hash_size)
     } else {
-        perft_init(&mut tree, depth - 1, leaf_hash_size, shared_hash_size)
+        perft_init(&mut tree, depth, leaf_hash_size, shared_hash_size)
     };
 
     let elapsed = now.elapsed();
