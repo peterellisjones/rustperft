@@ -3,25 +3,10 @@
 #![feature(platform_intrinsics)]
 #![feature(const_fn)]
 
-pub mod bb;
-mod board;
-mod castle;
-mod castling_rights;
-mod gen;
-mod integrity;
-mod mv;
-mod mv_list;
+mod tree;
 mod perft;
-mod piece;
-mod side;
-mod square;
-mod dbb;
-mod util;
-mod hash;
 
-#[cfg(target_feature = "sse3")]
-extern crate simd;
-extern crate rand;
+extern crate chess_move_gen;
 extern crate clap;
 extern crate threadpool;
 extern crate num_cpus;
@@ -33,7 +18,7 @@ extern crate unindent;
 extern crate test;
 
 use perft::perft_cmd;
-use board::STARTING_POSITION_FEN;
+use chess_move_gen::STARTING_POSITION_FEN;
 use clap::*;
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");

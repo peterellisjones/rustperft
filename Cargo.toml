@@ -4,10 +4,9 @@ version = "0.1.0"
 authors = ["Peter Ellis Jones <pete@peterellisjones.com>"]
 
 [dependencies]
-rand = "*"
-unindent = "*"
-simd = "*"
+chess-move-gen = "^0.2.1"
 prettytable-rs = "*"
 clap = "*"
 threadpool = "*"
 num_cpus = "*"
+unindent = "*"

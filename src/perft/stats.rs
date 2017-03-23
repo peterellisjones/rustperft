@@ -1,5 +1,5 @@
 use prettytable::Table;
-use mv_list::MoveCounter;
+use chess_move_gen::MoveCounter;
 
 #[derive(Copy, Clone)]
 pub struct Stats {
@@ -113,7 +113,7 @@ impl HashStats {
             r->format!("{}%", ((10000f64 * self.shared_hash_hit_ratio) / 100f64).round())
         ]);
 
-         table.add_row(row![
+        table.add_row(row![
             r->"thread (totals)",
             r->self.leaf_hash_entries_total,
             r->self.leaf_hash_bytes_total,
