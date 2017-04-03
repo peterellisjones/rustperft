@@ -71,7 +71,7 @@ pub fn perft_init(tree: &mut Tree,
     let shared_hash = new_shared_hash(shared_hash_size);
     let mut leaf_hash = new_leaf_hash(leaf_hash_size);
 
-    let stats = perft_layer(tree, max_depth, &shared_hash, &mut leaf_hash, false);
+    let stats = perft_layer(tree, max_depth, &shared_hash, &mut leaf_hash);
 
     let total_leaf_hash_fill_rate = leaf_hash.iter().filter(|e| e.key != 0).count() as u64;
     let mut shared_hash_fill_rate = 0u64;
@@ -129,7 +129,7 @@ pub fn perft_init_parallel(tree: &mut Tree,
 
         pool.execute(move || {
             tree.make(mv);
-            let stats = perft_layer(&mut tree, max_depth, &shared_hash, &mut leaf_hash, false);
+            let stats = perft_layer(&mut tree, max_depth, &shared_hash, &mut leaf_hash);
 
             let leaf_hash_fill_rate = leaf_hash.iter().filter(|e| e.key != 0).count() as u64;
 
@@ -181,8 +181,7 @@ pub fn perft_init_parallel(tree: &mut Tree,
 fn perft_layer(tree: &mut Tree,
                max_depth: usize,
                shared_hash: &Arc<Mutex<Vec<SharedHashEntry>>>,
-               leaf_hash: &mut [LeafHashEntry],
-               reverse_search: bool)
+               leaf_hash: &mut [LeafHashEntry])
                -> Stats {
     let remaining_depth = max_depth - tree.depth();
 
@@ -210,7 +209,7 @@ fn perft_layer(tree: &mut Tree,
 
     for &mv in moves.iter() {
         tree.make(mv);
-        stats.add(&perft_layer(tree, max_depth, shared_hash, leaf_hash, reverse_search));
+        stats.add(&perft_layer(tree, max_depth, shared_hash, leaf_hash));
         tree.unmake(mv);
     }
 
@@ -269,7 +268,7 @@ fn new_leaf_hash(size: usize) -> Vec<LeafHashEntry> {
     let mut hash = vec![LeafHashEntry {
         key: 0,
         counts: MoveCounter {
-            nodes: 0,
+            moves: 0,
             captures: 0,
             castles: 0,
             promotions: 0,

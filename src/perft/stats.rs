@@ -43,13 +43,13 @@ impl Stats {
 
     pub fn from_moves(moves: &MoveCounter, from_hash: bool) -> Stats {
         Stats {
-            nodes: moves.nodes as u64,
+            nodes: moves.moves as u64,
             captures: moves.captures as u64,
             ep_captures: moves.ep_captures as u32,
             castles: moves.castles as u32,
             promotions: moves.promotions as u32,
             nodes_from_shared_hash: 0,
-            nodes_from_thread_hash: if from_hash { moves.nodes as u32 } else { 0 },
+            nodes_from_thread_hash: if from_hash { moves.moves as u32 } else { 0 },
         }
     }
 
@@ -73,9 +73,9 @@ impl Stats {
             r->"seconds",
             r->"nodes per second",
             br->"nodes",
-            r->"captures", 
-            r->"ep captures", 
-            r->"castles", 
+            r->"captures",
+            r->"ep captures",
+            r->"castles",
             r->"promotions"]);
 
         table.add_row(row![
