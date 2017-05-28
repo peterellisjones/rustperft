@@ -8,19 +8,29 @@ use threadpool::ThreadPool;
 use num_cpus;
 use std::sync::{Mutex, Arc};
 use std::mem::size_of;
-use tree::Tree;
 
 const SHARED_HASH_LEAF_HASH_RATIO: usize = 2;
-const SHARED_HASH_MIN_REMAINING_DEPTH: usize = 3;
+const SHARED_HASH_REMAINING_DEPTH: usize = 3;
 
 const MAX_LEAF_HASH_BYTES: usize = 1024 * 512;
 
-pub fn perft_cmd(fen: &str,
-                 depth: usize,
-                 hash_size: usize,
-                 single_threaded: bool,
-                 show_hash_stats: bool) {
-    let cpus = if single_threaded { 1 } else { num_cpus::get() };
+pub fn perft_cmd(fen: &str, depth: usize, hash_size: usize, single_threaded: bool) {
+    let cpus = if single_threaded || depth <= 3 {
+        1
+    } else {
+        num_cpus::get()
+    };
+
+    if hash_size < 10000 {
+        let mut tree = Tree::new(fen);
+        let now = Instant::now();
+        let stats = perft_parallel(&mut tree, depth, cpus);
+        let elapsed = now.elapsed();
+        let nanos = (elapsed.as_secs() as u64) * 1000000000 + (elapsed.subsec_nanos() as u64);
+
+        stats.to_table(depth, nanos as f64).printstd();
+        return;
+    }
 
     let mut leaf_hash_size = (hash_size / SHARED_HASH_LEAF_HASH_RATIO) /
                              (cpus * size_of::<LeafHashEntry>());
@@ -34,20 +44,16 @@ pub fn perft_cmd(fen: &str,
     let mut tree = Tree::new(fen);
     let now = Instant::now();
 
-    let (stats, hash_stats) = if depth > 3 && !single_threaded {
-        perft_init_parallel(&mut tree, depth, leaf_hash_size, shared_hash_size)
-    } else {
-        perft_init(&mut tree, depth, leaf_hash_size, shared_hash_size)
-    };
+
+    let (stats, hash_stats) =
+        perft_parallel_hashed(&mut tree, depth, leaf_hash_size, shared_hash_size, cpus);
 
     let elapsed = now.elapsed();
     let nanos = (elapsed.as_secs() as u64) * 1000000000 + (elapsed.subsec_nanos() as u64);
 
     stats.to_table(depth, nanos as f64).printstd();
-    if show_hash_stats {
-        println!("");
-        hash_stats.to_table().printstd();
-    }
+    println!("");
+    hash_stats.to_table().printstd();
 }
 
 #[derive(Clone, Copy)]
@@ -60,61 +66,49 @@ struct LeafHashEntry {
 struct SharedHashEntry {
     key: u64,
     stats: Stats,
-    depth: u8,
 }
 
-pub fn perft_init(tree: &mut Tree,
-                  max_depth: usize,
-                  leaf_hash_size: usize,
-                  shared_hash_size: usize)
-                  -> (Stats, HashStats) {
-    let shared_hash = new_shared_hash(shared_hash_size);
-    let mut leaf_hash = new_leaf_hash(leaf_hash_size);
-
-    let stats = perft_layer(tree, max_depth, &shared_hash, &mut leaf_hash);
-
-    let total_leaf_hash_fill_rate = leaf_hash.iter().filter(|e| e.key != 0).count() as u64;
-    let mut shared_hash_fill_rate = 0u64;
-    for entry in shared_hash.lock().unwrap().iter() {
-        if entry.key != 0 {
-            shared_hash_fill_rate += 1;
-        }
-    }
-
-    let leaf_hash_fill_ratio = total_leaf_hash_fill_rate as f64 / leaf_hash_size as f64;
-    let shared_hash_fill_ratio = shared_hash_fill_rate as f64 / shared_hash_size as f64;
-
-    let leaf_hash_hit_ratio = stats.nodes_from_thread_hash as f64 / stats.nodes as f64;
-    let shared_hash_hit_ratio = stats.nodes_from_shared_hash as f64 / stats.nodes as f64;
-
-    (stats,
-     HashStats {
-         leaf_hash_entries: leaf_hash_size as u64,
-         leaf_hash_entries_total: leaf_hash_size as u64,
-         leaf_hash_bytes_total: (leaf_hash_size * size_of::<LeafHashEntry>()) as u64,
-         leaf_hash_count: 1u64,
-         leaf_hash_filled_total: total_leaf_hash_fill_rate as u64,
-         leaf_hash_fill_ratio: leaf_hash_fill_ratio,
-         leaf_hash_hit_ratio: leaf_hash_hit_ratio,
-         shared_hash_entries: shared_hash_size as u64,
-         shared_hash_bytes: (shared_hash_size * size_of::<SharedHashEntry>()) as u64,
-         shared_hash_fill_ratio: shared_hash_fill_ratio,
-         shared_hash_filled: shared_hash_fill_rate,
-         shared_hash_hit_ratio: shared_hash_hit_ratio,
-     })
-}
-
-pub fn perft_init_parallel(tree: &mut Tree,
-                           max_depth: usize,
-                           leaf_hash_size: usize,
-                           shared_hash_size: usize)
-                           -> (Stats, HashStats) {
+pub fn perft_parallel(tree: &mut Tree, max_depth: usize, cpus: usize) -> Stats {
     let (_, moves) = tree.generate_legal_moves();
 
     let mut total_stats: Stats = Stats::new();
 
     let (tx, rx) = mpsc::channel();
-    let pool = ThreadPool::new(num_cpus::get());
+    let pool = ThreadPool::new(cpus);
+
+    let move_count = moves.len();
+
+    for &mv in moves.iter() {
+        let tx = tx.clone();
+        let mut tree = tree.clone();
+
+        pool.execute(move || {
+            tree.make(mv);
+            let stats = perft_layer(&mut tree, max_depth);
+
+            tx.send(stats).unwrap();
+        });
+    }
+
+    for stats in rx.iter().take(move_count) {
+        total_stats.add(&stats);
+    }
+
+    total_stats
+}
+
+pub fn perft_parallel_hashed(tree: &mut Tree,
+                             max_depth: usize,
+                             leaf_hash_size: usize,
+                             shared_hash_size: usize,
+                             cpus: usize)
+                             -> (Stats, HashStats) {
+    let (_, moves) = tree.generate_legal_moves();
+
+    let mut total_stats: Stats = Stats::new();
+
+    let (tx, rx) = mpsc::channel();
+    let pool = ThreadPool::new(cpus);
 
     let shared_hash = new_shared_hash(shared_hash_size);
 
@@ -129,7 +123,7 @@ pub fn perft_init_parallel(tree: &mut Tree,
 
         pool.execute(move || {
             tree.make(mv);
-            let stats = perft_layer(&mut tree, max_depth, &shared_hash, &mut leaf_hash);
+            let stats = perft_layer_hashed(&mut tree, max_depth, &shared_hash, &mut leaf_hash);
 
             let leaf_hash_fill_rate = leaf_hash.iter().filter(|e| e.key != 0).count() as u64;
 
@@ -155,9 +149,12 @@ pub fn perft_init_parallel(tree: &mut Tree,
                                (leaf_hash_size * move_count) as f64;
     let shared_hash_fill_ratio = shared_hash_fill_rate as f64 / shared_hash_size as f64;
 
-    let leaf_hash_hit_ratio = total_stats.nodes_from_thread_hash as f64 / total_stats.nodes as f64;
-    let shared_hash_hit_ratio = total_stats.nodes_from_shared_hash as f64 /
-                                total_stats.nodes as f64;
+    let leaf_hash_hit_ratio = total_stats.thread_hash_hits as f64 /
+                              (total_stats.thread_hash_hits + total_stats.thread_hash_misses) as
+                              f64;
+    let shared_hash_hit_ratio = total_stats.shared_hash_hits as f64 /
+                                (total_stats.shared_hash_hits + total_stats.shared_hash_misses) as
+                                f64;
 
 
     (total_stats,
@@ -166,57 +163,64 @@ pub fn perft_init_parallel(tree: &mut Tree,
          leaf_hash_entries_total: (leaf_hash_size * move_count) as u64,
          leaf_hash_bytes_total: (num_cpus::get() * leaf_hash_size * size_of::<LeafHashEntry>()) as
                                 u64,
-         leaf_hash_count: move_count as u64,
-         leaf_hash_filled_total: total_leaf_hash_fill_rate as u64,
-         leaf_hash_fill_ratio: leaf_hash_fill_ratio,
-         leaf_hash_hit_ratio: leaf_hash_hit_ratio,
+         leaf_hash_queries: (total_stats.thread_hash_collisions + total_stats.thread_hash_hits +
+                             total_stats.thread_hash_misses) as u64,
+         leaf_hash_collisions: total_stats.thread_hash_collisions as u64,
+         leaf_hash_hits: total_stats.thread_hash_hits as u64,
+         leaf_hash_misses: total_stats.thread_hash_misses as u64,
+
          shared_hash_entries: shared_hash_size as u64,
          shared_hash_bytes: (shared_hash_size * size_of::<SharedHashEntry>()) as u64,
-         shared_hash_fill_ratio: shared_hash_fill_ratio,
-         shared_hash_filled: shared_hash_fill_rate,
-         shared_hash_hit_ratio: shared_hash_hit_ratio,
+         shared_hash_queries: (total_stats.shared_hash_collisions + total_stats.shared_hash_hits +
+                               total_stats.shared_hash_misses) as u64,
+         shared_hash_hits: total_stats.shared_hash_hits as u64,
+         shared_hash_collisions: total_stats.shared_hash_collisions as u64,
+         shared_hash_misses: total_stats.shared_hash_misses as u64,
      })
 }
 
-fn perft_layer(tree: &mut Tree,
-               max_depth: usize,
-               shared_hash: &Arc<Mutex<Vec<SharedHashEntry>>>,
-               leaf_hash: &mut [LeafHashEntry])
-               -> Stats {
+fn perft_layer_hashed(tree: &mut Tree,
+                      max_depth: usize,
+                      shared_hash: &Arc<Mutex<Vec<SharedHashEntry>>>,
+                      leaf_hash: &mut [LeafHashEntry])
+                      -> Stats {
     let remaining_depth = max_depth - tree.depth();
 
     if remaining_depth <= 1 {
-        return perft_leaves(tree, leaf_hash);
+        return perft_leaves_hashed(tree, leaf_hash);
     }
 
     let key = tree.key();
     let mut hash_idx = 0;
-    let use_hash = remaining_depth >= SHARED_HASH_MIN_REMAINING_DEPTH;
+    let use_hash = remaining_depth == SHARED_HASH_REMAINING_DEPTH;
+
+    let mut stats = Stats::new();
 
     if use_hash {
         let hash_val = shared_hash.lock().unwrap();
         hash_idx = (key % (hash_val.len() as u64)) as usize;
         let entry = &hash_val[hash_idx];
-        if entry.key == key && entry.depth as usize == tree.depth() {
+        if entry.key == key {
             let mut stats = entry.stats;
-            stats.nodes_from_shared_hash = stats.nodes;
+            stats.shared_hash_hits += 1;
             return stats;
+        } else {
+            stats.shared_hash_collisions = 1;
         }
     }
+    stats.shared_hash_misses = 1;
 
-    let mut stats = Stats::new();
     let (_, moves) = tree.generate_legal_moves();
 
     for &mv in moves.iter() {
         tree.make(mv);
-        stats.add(&perft_layer(tree, max_depth, shared_hash, leaf_hash));
+        stats.add(&perft_layer_hashed(tree, max_depth, shared_hash, leaf_hash));
         tree.unmake(mv);
     }
 
     if use_hash {
         shared_hash.lock().unwrap()[hash_idx] = SharedHashEntry {
             key: key,
-            depth: tree.depth() as u8,
             stats: stats,
         };
     }
@@ -224,13 +228,40 @@ fn perft_layer(tree: &mut Tree,
     stats
 }
 
-fn perft_leaves(tree: &mut Tree, hash: &mut [LeafHashEntry]) -> Stats {
+
+fn perft_layer(tree: &mut Tree, max_depth: usize) -> Stats {
+    let remaining_depth = max_depth - tree.depth();
+
+    if remaining_depth <= 1 {
+        let (_, counts) = tree.count_legal_moves();
+        return Stats::from_moves(&counts);
+    }
+
+    let mut stats = Stats::new();
+    let (_, moves) = tree.generate_legal_moves();
+
+    for &mv in moves.iter() {
+        tree.make(mv);
+
+        stats.add(&perft_layer(tree, max_depth));
+        tree.unmake(mv);
+    }
+
+    stats
+}
+
+fn perft_leaves_hashed(tree: &mut Tree, hash: &mut [LeafHashEntry]) -> Stats {
     let key = tree.key();
     let hash_idx = (key % (hash.len() as u64)) as usize;
     let entry = hash[hash_idx];
 
+    let mut hash_collisions = 0;
     if entry.key == key {
-        return Stats::from_moves(&entry.counts, true);
+        let mut stats = Stats::from_moves(&entry.counts);
+        stats.thread_hash_hits = 1;
+        return stats;
+    } else if entry.key != 0 {
+        hash_collisions = 1;
     }
 
     let (_, counts) = tree.count_legal_moves();
@@ -240,22 +271,28 @@ fn perft_leaves(tree: &mut Tree, hash: &mut [LeafHashEntry]) -> Stats {
         counts: counts,
     };
 
-    Stats::from_moves(&counts, false)
+    let mut stats = Stats::from_moves(&counts);
+    stats.thread_hash_misses = 1;
+    stats.thread_hash_collisions = hash_collisions;
+    stats
 }
 
 fn new_shared_hash(size: usize) -> Arc<Mutex<Vec<SharedHashEntry>>> {
     // hash shared between threads
     let mut data = vec![SharedHashEntry {
         key: 0,
-        depth: 0,
         stats: Stats {
             nodes: 0,
             captures: 0,
             castles: 0,
             promotions: 0,
             ep_captures: 0,
-            nodes_from_shared_hash: 0,
-            nodes_from_thread_hash: 0,
+            shared_hash_hits: 0,
+            thread_hash_hits: 0,
+            shared_hash_misses: 0,
+            thread_hash_misses: 0,
+            shared_hash_collisions: 0,
+            thread_hash_collisions: 0,
         },
     }; size];
 
@@ -290,7 +327,7 @@ mod test {
             #[test]
             fn $name() {
                 let mut tree = Tree::new($fen);
-                let (stats, _) = perft_init(&mut tree, $depth, 100000, 100000);
+                let (stats, _) = perft_parallel_hashed(&mut tree, $depth, 100000, 100000, 1);
                 assert_eq!(stats.nodes, $nodes);
             }
         }

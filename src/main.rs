@@ -3,7 +3,6 @@
 #![feature(platform_intrinsics)]
 #![feature(const_fn)]
 
-mod tree;
 mod perft;
 
 extern crate chess_move_gen;
@@ -50,11 +49,6 @@ fn main() {
         .short("s")
         .help("Only use one core");
 
-    let hash_stats_arg = Arg::with_name("hash-stats")
-        .long("hash-stats")
-        .short("t")
-        .help("Show hash statistics");
-
     let matches = App::new("RustChess")
         .version(VERSION)
         .author("Peter Jones")
@@ -63,13 +57,11 @@ fn main() {
         .arg(depth_arg.clone())
         .arg(hash_size_arg.clone())
         .arg(single_threaded_arg.clone())
-        .arg(hash_stats_arg.clone())
         .get_matches();
 
     let fen = value_t_or_exit!(matches.value_of("fen"), String);
     let depth = value_t_or_exit!(matches.value_of("depth"), usize);
     let hash_size = value_t_or_exit!(matches.value_of("hash-size"), usize);
     let single_threaded = matches.is_present("single-threaded");
-    let hash_stats = matches.is_present("hash-stats");
-    perft_cmd(&fen, depth, hash_size, single_threaded, hash_stats);
+    perft_cmd(&fen, depth, hash_size, single_threaded);
 }
