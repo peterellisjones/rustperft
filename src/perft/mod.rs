@@ -125,37 +125,13 @@ pub fn perft_parallel_hashed(tree: &mut Tree,
             tree.make(mv);
             let stats = perft_layer_hashed(&mut tree, max_depth, &shared_hash, &mut leaf_hash);
 
-            let leaf_hash_fill_rate = leaf_hash.iter().filter(|e| e.key != 0).count() as u64;
-
-            tx.send((stats, leaf_hash_fill_rate)).unwrap();
+            tx.send(stats).unwrap();
         });
     }
 
-    let mut total_leaf_hash_fill_rate = 0u64;
-
-    for (stats, leaf_hash_fill_rate) in rx.iter().take(move_count) {
-        total_leaf_hash_fill_rate += leaf_hash_fill_rate;
+    for stats in rx.iter().take(move_count) {
         total_stats.add(&stats);
     }
-
-    let mut shared_hash_fill_rate = 0u64;
-    for entry in shared_hash.lock().unwrap().iter() {
-        if entry.key != 0 {
-            shared_hash_fill_rate += 1;
-        }
-    }
-
-    let leaf_hash_fill_ratio = total_leaf_hash_fill_rate as f64 /
-                               (leaf_hash_size * move_count) as f64;
-    let shared_hash_fill_ratio = shared_hash_fill_rate as f64 / shared_hash_size as f64;
-
-    let leaf_hash_hit_ratio = total_stats.thread_hash_hits as f64 /
-                              (total_stats.thread_hash_hits + total_stats.thread_hash_misses) as
-                              f64;
-    let shared_hash_hit_ratio = total_stats.shared_hash_hits as f64 /
-                                (total_stats.shared_hash_hits + total_stats.shared_hash_misses) as
-                                f64;
-
 
     (total_stats,
      HashStats {
