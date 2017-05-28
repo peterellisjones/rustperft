@@ -4,11 +4,13 @@ A reasonably fast, multi-threaded, chess [perft](https://chessprogramming.wikisp
 
 - Counts nodes, captures, en-passant captures, castles and promotions at a given depth from an given position.
 - Bulk counting at leaves
-- Bitboard representation
-- Legal move generation
 - Threads root node accross available CPUs using [Threadpool crate](https://crates.io/crates/threadpool)
-- [Kogge-Stone generators](https://chessprogramming.wikispaces.com/Kogge-Stone+Algorithm) and [subtraction](https://chessprogramming.wikispaces.com/Subtracting+a+Rook+from+a+Blocking+Piece) methods for sliding piece attacks, using [SSE3](https://en.wikipedia.org/wiki/SSE3) intrinsics where available.
 - Shared hash for nodes near root and thread-local hash for leaf nodes, using [Zobrist](https://chessprogramming.wikispaces.com/Zobrist+Hashing) hashing.
+- Uses [chess-move-gen](https://crates.io/crates/chess-move-gen) create for move generation
+  - Bitboard representation
+  - Legal move generation
+  - [Kogge-Stone generators](https://chessprogramming.wikispaces.com/Kogge-Stone+Algorithm) and [subtraction](https://chessprogramming.wikispaces.com/Subtracting+a+Rook+from+a+Blocking+Piece) methods for checks and pinned piece evaluation, using [SSE3](https://en.wikipedia.org/wiki/SSE3) intrinsics where available.
+  - [Magic bitboards](https://chessprogramming.wikispaces.com/Magic+Bitboards) for sliding piece move generation.
 
 [Related blogpost here](http://peterellisjones.com/post/generating-legal-chess-moves-efficiently.html).
 
